@@ -91,7 +91,7 @@ const specializedAgent = new Agent({
   name: "FinanceExpert",
   model: "ministral-3:3b",
   // Attach a fine-tuned adapter for better accuracy on specific tasks
-  lora: "./adapters/finance-v1.gguf", 
+  lora: "./adapters/finance-v1.gguf", // Lora only work to local models
   description: "A specialized agent for financial analysis."
 });
 ```
@@ -109,7 +109,7 @@ const smartAgent = new Agent({ model: "openai/gpt-5.2-pro" }); // Smart, expensi
 // The Router acts as the entry point
 export const mainRouter = new Router({
   model: "gemma3:4b",
-  lora: "./adapters/finance-v1.gguf", 
+  lora: "./adapters/router-v2.gguf", 
   default: fastAgent, // Default to the cheap model
   routes: [
     { 
