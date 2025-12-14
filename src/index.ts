@@ -1,4 +1,4 @@
-import type {
+export type {
     Message, 
     ChatResponse, 
     AgentOptions, 
