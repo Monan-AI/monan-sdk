@@ -39,7 +39,7 @@ export const assistant = new Agent({
   description: "A helpful assistant to answer questions.",
   // Optional: Pre-define default behaviors
   config: {
-    temperature: 0.7,
+    temperature: 0.2,
     maxTokens: 1000
   }
 });
@@ -84,15 +84,34 @@ const cloudAgent = new Agent({
 
 ## 🔧 Advanced Usage: LoRA & Adapters
 
-Small local models (like 3B or 7B parameters) often struggle with specific instructions. Monan supports **LoRA/QLoRA adapters** to inject specialized knowledge without switching to a massive model.
+Small local models often struggle with specific instructions. To use **LoRA/QLoRA adapters** locally, you must create a custom model in Ollama first. This ensures maximum performance by merging the adapter weights at the engine level.
+
+**Step 1: Create a `Modelfile`**
+Create a file named `Modelfile` in your project root:
+
+```dockerfile
+FROM gemma3:4b
+# Path to your GGUF adapter
+ADAPTER ./adapters/finance-v1.gguf
+# Optional: Set default parameters for this specific LoRA
+PARAMETER temperature 0.2
+```
+
+**Step 2: Build the Custom Model**
+Run this command in your terminal:
+
+```bash
+ollama create finance-expert -f Modelfile
+```
+
+**Step 3: Use the Model in Monan**
+Now, simply refer to your new custom model by name.
 
 ```typescript
 const specializedAgent = new Agent({
   name: "FinanceExpert",
-  model: "ministral-3:3b",
-  // Attach a fine-tuned adapter for better accuracy on specific tasks
-  lora: "./adapters/finance-v1.gguf", // Lora only work to local models
-  description: "A specialized agent for financial analysis."
+  model: "finance-expert", // <--- The name you created in Step 2
+  description: "A specialized agent for financial analysis using a custom LoRA."
 });
 ```
 
@@ -104,12 +123,12 @@ For complex systems, you shouldn't use a heavy model for everything. The **Route
 import { Router, Agent } from 'monan';
 
 const fastAgent = new Agent({ model: "gemma3:4b" }); // Fast, cheap
-const smartAgent = new Agent({ model: "openai/gpt-5.2-pro" }); // Smart, expensive (The API key value is automatically retrieved by searching for the OPEN_ROUTER_API_KEY environment variable)
+const smartAgent = new Agent({ model: "openai/gpt-5.2-pro" }); // Smart, expensive 
 
 // The Router acts as the entry point
 export const mainRouter = new Router({
-  model: "gemma3:4b",
-  lora: "./adapters/router-v2.gguf", 
+  // You can use a fine-tuned router model created via Modelfile (see above)
+  model: "router-custom-v2", 
   default: fastAgent, // Default to the cheap model
   routes: [
     { 
