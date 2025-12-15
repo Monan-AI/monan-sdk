@@ -23,7 +23,7 @@ bun add -g monan
 
 In Monan, you define your agent in code, but execution (Chat or API) is managed by the CLI. This ensures optimization and standardization.
 
-> **Local Models:** All models available on [Ollama](https://ollama.com/search) can be used. Just pay attention to the string formatting: `<model-name>:<parameter-amount>`.
+> **⚠️ Local Models:** All models available on [Ollama](https://ollama.com/search) can be used. Just pay attention to the string formatting: `<model-name>:<parameter-amount>`. **Important:** When using local models, you must run `ollama serve` in a separate terminal before executing your agent.
 
 > **Cloud Models:** We support [OpenRouter](https://openrouter.ai/) for access to OpenAI, Anthropic, and others.
 
