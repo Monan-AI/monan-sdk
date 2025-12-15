@@ -1,4 +1,15 @@
-# 🔥 Monan SDK
+<div align="center">
+  <img src="images/Monan typograph transparent.svg" alt="Monan SDK" width="400"/>
+
+  <div align="center">
+  <h3>Your framework for creating secure agents.</h3>
+</div>
+  
+  <a href="LICENSE" target="_blank"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License"></a>
+  <a href="https://bun.sh" target="_blank"><img src="https://img.shields.io/badge/built%20with-Bun-black" alt="Built with Bun"></a>
+  <a href="https://www.typescriptlang.org/" target="_blank"><img src="https://img.shields.io/badge/language-TypeScript-3178c6" alt="TypeScript"></a>
+  <a href="https://github.com/Monan-AI/monan-sdk" target="_blank"><img src="https://img.shields.io/badge/status-Alpha-yellow" alt="Status"></a>
+</div>
 
 > *Monan is currently in active development (Alpha). Some features may change. We welcome community collaboration via PRs, Issues, and feedback to help us reach version 1.0.*
 
