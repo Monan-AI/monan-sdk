@@ -34,8 +34,7 @@ export class Agent {
   }
 
   /**
-   * INVOKE Pattern (Synchronous) - LangChain Style
-   * Receives message history and returns complete response.
+   * INVOKE Pattern (Synchronous)
    */
   async invoke(messages: Message[]): Promise<ChatResponse> {
     const finalMessages = await this.prepareContext(messages);
@@ -43,59 +42,72 @@ export class Agent {
     if (this.isCloud) {
       return this.callOpenRouter(finalMessages);
     } else {
-      return this.callOllama(finalMessages);
+      return this.callOllamaWithRetry(finalMessages);
     }
   }
 
   /**
-   * STREAM Pattern (Asynchronous) - LangChain Style
-   * Returns a Generator that yields tokens as they are generated.
+   * STREAM Pattern (Asynchronous)
    */
   async *stream(messages: Message[]): AsyncGenerator<string, void, unknown> {
     const finalMessages = await this.prepareContext(messages);
 
     if (this.isCloud) {
-      // Stream from OpenRouter (Fetch with ReadableStream)
       yield* this.streamOpenRouter(finalMessages);
     } else {
-      // Stream from Ollama (Native from lib)
-      const response = await this.ollama.chat({
-        model: this.model,
-        messages: finalMessages,
-        stream: true, // <--- Enables streaming
-        options: {
-          temperature: this.config.temperature,
-          num_predict: this.config.maxTokens,
-        },
-      });
+      // Attempts to start the stream locally
+      let response;
+      try {
+        response = await this.ollama.chat({
+          model: this.model,
+          messages: finalMessages,
+          stream: true,
+          options: {
+            temperature: this.config.temperature,
+            num_predict: this.config.maxTokens,
+          },
+        });
+      } catch (error) {
+        // If it fails due to missing model, download and retry
+        if (await this.handleModelMissingError(error)) {
+          response = await this.ollama.chat({
+            model: this.model,
+            messages: finalMessages,
+            stream: true,
+            options: {
+              temperature: this.config.temperature,
+              num_predict: this.config.maxTokens,
+            },
+          });
+        } else {
+          throw error; // If it's a different error, re-throw
+        }
+      }
 
-      for await (const part of response) {
-        yield part.message.content;
+      // Consume the stream and yield each token
+      if (response && Symbol.asyncIterator in response) {
+        for await (const part of response) {
+          if (part.message?.content) {
+            yield part.message.content;
+          }
+        }
       }
     }
   }
 
   // --- PRIVATE INFRASTRUCTURE METHODS ---
 
-  /**
-   * Prepares messages by injecting System Prompt, RAG, and applying PII Masking
-   */
   private async prepareContext(messages: Message[]): Promise<Message[]> {
-    // Clone to avoid mutating the original array
     let contextMessages = [...messages];
-
-    // 1. Identify the last user message for RAG and PII
     const lastUserMsgIndex: number = contextMessages.findLastIndex(m => m.role === 'user');
     
     if (lastUserMsgIndex !== -1) {
       let content = contextMessages[lastUserMsgIndex]!.content;
 
-      // PII masking
       if (this.useMaskPII) {
         content = maskPII(content);
       }
 
-      // RAG (Knowledge Base)
       if (this.knowledgeBase) {
         const relevantDocs = await this.knowledgeBase.search(content);
         if (relevantDocs.length > 0) {
@@ -103,16 +115,13 @@ export class Agent {
         }
       }
 
-      // Update the processed message
       contextMessages[lastUserMsgIndex] = { ...contextMessages[lastUserMsgIndex]!, content };
     }
 
-    // 2. Inject System Prompt at the beginning (if not already present)
     const systemPrompt = `You are ${this.name}. ${this.description}`;
     if (contextMessages.length === 0 || contextMessages[0]!.role !== 'system') {
       contextMessages.unshift({ role: 'system', content: systemPrompt });
     } else {
-      // If system message already exists, append agent description to reinforce the persona
       contextMessages[0]!.content = `${systemPrompt}\n${contextMessages[0]!.content}`;
     }
 
@@ -120,32 +129,99 @@ export class Agent {
   }
 
   /**
-   * Executes local inference via Ollama (Chat Mode)
+   * Wrapper for callOllama that implements Auto-Download logic
    */
-  private async callOllama(messages: Message[]): Promise<ChatResponse> {
+  private async callOllamaWithRetry(messages: Message[]): Promise<ChatResponse> {
     try {
-      const response = await this.ollama.chat({
-        model: this.model,
-        messages: messages, // Now we pass the structured array
-        stream: false,
-        options: {
-          temperature: this.config.temperature,
-          num_predict: this.config.maxTokens,
-        }
-      });
-
-      return {
-        content: response.message.content,
-        usage: { tokens: response.eval_count }
-      };
+      return await this.executeOllamaChat(messages);
     } catch (error) {
-      throw new Error(`Ollama Error: ${error instanceof Error ? error.message : error}`);
+      // If the error is "model not found", attempt download and retry
+      const recovered = await this.handleModelMissingError(error);
+      if (recovered) {
+        return await this.executeOllamaChat(messages);
+      }
+      throw error;
     }
   }
 
   /**
-   * Executes cloud inference via OpenRouter (Invoke)
+   * Pure Ollama chat execution (without retry try/catch)
    */
+  private async executeOllamaChat(messages: Message[]): Promise<ChatResponse> {
+    const response = await this.ollama.chat({
+      model: this.model,
+      messages: messages,
+      stream: false,
+      options: {
+        temperature: this.config.temperature,
+        num_predict: this.config.maxTokens,
+      }
+    });
+
+    return {
+      content: response.message.content,
+      usage: { tokens: response.eval_count }
+    };
+  }
+
+  /**
+   * Verifies if the error is "Model not found" and attempts to download it.
+   * Returns true if download was successful, false if it wasn't this error.
+   */
+  private async handleModelMissingError(error: unknown): Promise<boolean> {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    // Ollama usually returns status 404 or message containing "not found" or "try pulling"
+    const isMissingModel = errorMessage.includes('not found') || errorMessage.includes('try pulling');
+
+    if (isMissingModel) {
+      console.log(`[WARNING] Local model '${this.model}' not found.`);
+      console.log(`[INFO] Starting automatic download via Ollama... (This may take a while)`);
+      
+      try {
+        // Initiate the streamed Pull to show progress in console
+        const stream = await this.ollama.pull({ model: this.model, stream: true });
+        
+        // Progress tracking
+        let totalBytes = 0;
+        let downloadedBytes = 0;
+        const progressBars = new Map<string, { total: number; completed: number }>();
+
+        for await (const part of stream) {
+          if (part.digest && part.total && part.completed) {
+            progressBars.set(part.digest, { total: part.total, completed: part.completed });
+            
+            // Calculate overall progress
+            totalBytes = 0;
+            downloadedBytes = 0;
+            
+            for (const [, progress] of progressBars) {
+              totalBytes += progress.total;
+              downloadedBytes += progress.completed;
+            }
+            
+            const percentage = totalBytes > 0 ? Math.round((downloadedBytes / totalBytes) * 100) : 0;
+            const barLength = 30;
+            const filledLength = Math.round((percentage / 100) * barLength);
+            const progressBar = '[' + '█'.repeat(filledLength) + '░'.repeat(barLength - filledLength) + ']';
+            
+            process.stdout.write(`\r   ${progressBar} ${percentage}%`);
+          }
+        }
+        
+        console.log();
+        console.log(`[SUCCESS] Model '${this.model}' downloaded successfully! Resuming execution...`);
+        return true;
+      } catch (pullError) {
+        throw new Error(`Failed to download model '${this.model}': ${pullError instanceof Error ? pullError.message : pullError}`);
+      }
+    }
+
+    return false;
+  }
+
+  // --- CLOUD METHODS ---
+
   private async callOpenRouter(messages: Message[]): Promise<ChatResponse> {
     if (!this.openRouterToken) throw new Error("OpenRouter Token required.");
 
@@ -174,9 +250,6 @@ export class Agent {
     };
   }
 
-  /**
-   * Handles manual streaming from OpenRouter/OpenAI API
-   */
   private async *streamOpenRouter(messages: Message[]): AsyncGenerator<string, void, unknown> {
     if (!this.openRouterToken) throw new Error("OpenRouter Token required.");
 
@@ -193,13 +266,12 @@ export class Agent {
         messages: messages,
         temperature: this.config.temperature,
         max_tokens: this.config.maxTokens,
-        stream: true // SSE enabled
+        stream: true
       })
     });
 
     if (!response.ok || !response.body) throw new Error(await response.text());
 
-    // Stream reading in Bun/Node
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -210,7 +282,7 @@ export class Agent {
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
-      buffer = lines.pop() || ''; // Keep incomplete remainder for next loop
+      buffer = lines.pop() || '';
 
       for (const line of lines) {
         const trimmed = line.trim();
@@ -220,9 +292,7 @@ export class Agent {
             const json = JSON.parse(trimmed.substring(6));
             const content = json.choices[0]?.delta?.content;
             if (content) yield content;
-          } catch (e) {
-            // Ignore parse error lines in stream (keep-alive, etc)
-          }
+          } catch (e) { }
         }
       }
     }
