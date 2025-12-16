@@ -93,6 +93,38 @@ const cloudAgent = new Agent({
 });
 ```
 
+## 🎯 Custom System Prompts
+
+Define custom system prompts to guide your agent's behavior and personality. If no `systemPrompt` is provided, Monan automatically generates one based on the agent's name and description.
+
+```typescript
+import { Agent } from 'monan';
+
+const specialistAgent = new Agent({
+  name: "DataAnalyst",
+  model: "qwen3-vl:30b",
+  description: "Analyzes complex datasets",
+  // Custom system prompt for precise behavior
+  systemPrompt: `You are a senior data analyst with 10 years of experience.
+Your role is to:
+1. Analyze data patterns and anomalies
+2. Provide actionable insights
+3. Present findings with statistical confidence levels
+4. Suggest improvements based on data trends
+
+Always be precise, use data-driven reasoning, and provide sources for your claims.`,
+  config: {
+    temperature: 0.2,
+    maxTokens: 2048
+  }
+});
+```
+
+**System Prompt Priority:**
+- If `systemPrompt` is provided, it will be used as the primary system instruction
+- If not provided, Monan automatically generates: `"You are {name}. {description}"`
+- If additional system messages are in the message history, the system prompt is prepended to them
+
 ## 🔧 Advanced Usage: LoRA & Adapters
 
 Small local models often struggle with specific instructions. To use **LoRA/QLoRA adapters** locally, you must create a custom model in Ollama first. This ensures maximum performance by merging the adapter weights at the engine level.
@@ -184,8 +216,8 @@ const writer = new Agent({ name: "writer", model: 'qwen3-vl:30b' });
 
 // --- Workflow ---
 export const blogFlow = new Workflow()
-  .add(researcher, { task: "Search about Bun vs Node" })
-  .add(writer, { task: "Write a summary based on research" })
+  .add(researcher)
+  .add(writer)
   .build();
 ```
 

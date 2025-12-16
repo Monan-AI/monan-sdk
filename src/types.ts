@@ -14,6 +14,9 @@ export interface AgentOptions {
   description: string;
   config?: AgentConfig;
   
+  // System Prompt
+  systemPrompt?: string;
+  
   // Cloud & Auth
   openRouterToken?: string;
   

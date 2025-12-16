@@ -9,6 +9,7 @@ export class Agent {
   public config: AgentConfig;
   public tools: any[];
   public knowledgeBase?: IVectorStore;
+  public systemPrompt?: string;
 
   private isCloud: boolean;
   private openRouterToken?: string;
@@ -21,6 +22,7 @@ export class Agent {
     this.description = options.description;
     this.tools = options.tools || [];
     this.knowledgeBase = options.knowledgeBase;
+    this.systemPrompt = options.systemPrompt;
 
     this.config = {
       temperature: options.config?.temperature ?? 0.7,
@@ -118,11 +120,14 @@ export class Agent {
       contextMessages[lastUserMsgIndex] = { ...contextMessages[lastUserMsgIndex]!, content };
     }
 
-    const systemPrompt = `You are ${this.name}. ${this.description}`;
+    // Build system prompt
+    let systemPromptContent = this.systemPrompt || `You are ${this.name}. ${this.description}`;
+    
     if (contextMessages.length === 0 || contextMessages[0]!.role !== 'system') {
-      contextMessages.unshift({ role: 'system', content: systemPrompt });
+      contextMessages.unshift({ role: 'system', content: systemPromptContent });
     } else {
-      contextMessages[0]!.content = `${systemPrompt}\n${contextMessages[0]!.content}`;
+      // If a system message already exists, prepend our system prompt to it
+      contextMessages[0]!.content = `${systemPromptContent}\n${contextMessages[0]!.content}`;
     }
 
     return contextMessages;
