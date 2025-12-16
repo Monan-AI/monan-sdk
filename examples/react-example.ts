@@ -15,6 +15,7 @@ class CalculatorTools {
       b: z.number(),
     }),
     execute: async (input: { a: number; b: number }) => {
+      console.log(`Executing add with inputs: ${input.a}, ${input.b}`);
       return { result: input.a + input.b };
     },
   });
@@ -27,6 +28,7 @@ class CalculatorTools {
       b: z.number(),
     }),
     execute: async (input: { a: number; b: number }) => {
+      console.log(`Executing multiply with inputs: ${input.a}, ${input.b}`);
       return { result: input.a * input.b };
     },
   });
@@ -40,8 +42,10 @@ class CalculatorTools {
     }),
     execute: async (input: { a: number; b: number }) => {
       if (input.b === 0) {
+        console.log('Error: Division by zero');
         return { error: 'Cannot divide by zero' };
       }
+      console.log(`Executing divide with inputs: ${input.a}, ${input.b}`);
       return { result: input.a / input.b };
     },
   });
@@ -60,6 +64,7 @@ class WebSearchTools {
         { title: 'Result 1', snippet: 'Information about ' + input.query },
         { title: 'Result 2', snippet: 'More info on ' + input.query },
       ];
+      console.log(`Executing search with query: ${input.query}`);
       return { results };
     },
   });
@@ -79,14 +84,12 @@ async function main() {
       temperature: 0.7,
       maxTokens: 1024,
       maxRetries: 5, // Will retry failed tools up to 5 times
-      enableReAct: true, // Enable ReAct pattern
     },
     systemPrompt: 'You are a helpful math and search assistant. Use tools when needed.',
   });
 
   console.log('Agent created with ReAct enabled!');
   console.log(`Max retries configured: ${agent.maxRetries}`);
-  console.log(`ReAct enabled: ${agent.enableReAct}`);
   console.log(`Available tools: ${agent.tools.map(t => t.name).join(', ')}\n`);
 
   // Example usage

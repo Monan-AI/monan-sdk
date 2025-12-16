@@ -8,26 +8,6 @@ import { z } from 'zod';
 
 describe('ReAct Pattern with Retries', () => {
   // Create a tool that fails sometimes to test retry logic
-  let failCount = 0;
-  
-  class FailingTools {
-    flakyTool = tool({
-      name: 'flakyTool',
-      description: 'A tool that fails sometimes',
-      inputSchema: z.object({
-        value: z.number(),
-      }),
-      execute: async (input: { value: number }) => {
-        failCount++;
-        if (failCount < 3) {
-          // Fail on first 2 attempts
-          return { error: `Attempt ${failCount} failed` };
-        }
-        // Succeed on 3rd attempt
-        return { result: input.value * 2 };
-      },
-    });
-  }
 
   class SimpleMathTools {
     add = tool({
@@ -66,7 +46,6 @@ describe('ReAct Pattern with Retries', () => {
       maxRetries: 5,
     });
 
-    expect(agent.enableReAct).toBe(true);
     expect(agent.maxRetries).toBe(5);
     expect(agent.tools.length).toBe(2);
   });
@@ -79,12 +58,10 @@ describe('ReAct Pattern with Retries', () => {
       description: 'Test agent',
       tools: extractTools(mathTools),
       config: {
-        enableReAct: true,
         maxRetries: 3,
       },
     });
 
-    expect(agent.enableReAct).toBe(true);
     expect(agent.maxRetries).toBe(3);
   });
 
@@ -97,7 +74,6 @@ describe('ReAct Pattern with Retries', () => {
       tools: extractTools(mathTools),
     });
 
-    expect(agent.enableReAct).toBe(true); // Default true
     expect(agent.maxRetries).toBe(5); // Default 5
   });
 
@@ -111,7 +87,6 @@ describe('ReAct Pattern with Retries', () => {
       enableReAct: false,
     });
 
-    expect(agent.enableReAct).toBe(false);
   });
 
   it('should build tools context correctly', () => {
@@ -136,13 +111,7 @@ describe('ReAct Pattern with Retries', () => {
       model: 'llama2',
       description: 'Test agent',
       tools: extractTools(mathTools),
-      enableReAct: false,
-      config: {
-        enableReAct: true,
-      },
     });
-
-    expect(agent.enableReAct).toBe(false); // Option level takes precedence
   });
 
   it('should configure temperature and maxTokens', () => {

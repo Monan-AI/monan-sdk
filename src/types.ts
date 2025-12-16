@@ -5,7 +5,6 @@ export interface AgentConfig {
 
 export interface AgentReActConfig extends AgentConfig {
   maxRetries?: number;
-  enableReAct?: boolean;
 }
 
 /**

@@ -13,7 +13,6 @@ export class Agent {
   public knowledgeBase?: IVectorStore;
   public systemPrompt?: string;
   public maxRetries: number;
-  public enableReAct: boolean;
 
   private isCloud: boolean;
   private openRouterToken?: string;
@@ -31,13 +30,10 @@ export class Agent {
     this.config = {
       temperature: options.config?.temperature ?? 0.7,
       maxTokens: options.config?.maxTokens ?? 1024,
-      maxRetries: options.config?.maxRetries ?? 5,
-      enableReAct: options.config?.enableReAct ?? true,
+      maxRetries: options.config?.maxRetries ?? 5
     };
 
     this.maxRetries = options.maxRetries ?? this.config.maxRetries ?? 5;
-    this.enableReAct = options.enableReAct ?? this.config.enableReAct ?? true;
-
     this.isCloud = this.checkIsCloud(this.model);
     this.openRouterToken = options.openRouterToken || process.env.OPEN_ROUTER_API_KEY;
     this.useMaskPII = options.maskPII ?? (this.isCloud ? true : false);
@@ -51,7 +47,7 @@ export class Agent {
     const finalMessages = await this.prepareContext(messages);
 
     // Use ReAct pattern if enabled and tools are available
-    if (this.enableReAct && this.tools.length > 0) {
+    if (this.tools.length > 0) {
       return this.invokeWithReAct(finalMessages);
     }
 
