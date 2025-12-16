@@ -113,6 +113,7 @@ export class Agent {
   /**
    * Executes the ReAct (Reasoning + Acting) pattern
    * Allows the agent to think about the problem, call tools, observe results, and iterate
+   * maxRetries controls the maximum number of observation cycles (not individual tool retries)
    */
   private async invokeWithReAct(messages: Message[]): Promise<ChatResponse> {
     const reActMessages: Message[] = [...messages];
@@ -135,12 +136,9 @@ export class Agent {
     let agentResponse: ChatResponse = { content: '', usage: { tokens: 0 } };
     let reActSteps: ReActStep[] = [];
     let continueLoop = true;
-    let iterations = 0;
-    const maxIterations = 10; // Prevent infinite loops
+    let observationCycles = 0; // Track observation cycles, not individual tool retries
 
-    while (continueLoop && iterations < maxIterations) {
-      iterations++;
-
+    while (continueLoop && observationCycles < this.maxRetries) {
       // Get agent's reasoning and action
       agentResponse = this.isCloud 
         ? await this.callOpenRouter(reActMessages)
@@ -150,8 +148,11 @@ export class Agent {
       const toolCall = this.parseToolCall(agentResponse.content);
 
       if (toolCall) {
-        // Execute tool with retry logic
-        const observation = await this.executeToolWithRetry(toolCall.name, toolCall.input);
+        // Execute tool (single execution, no internal retries)
+        const observation = await this.executeToolOnce(toolCall.name, toolCall.input);
+        
+        // Increment observation cycle counter
+        observationCycles++;
         
         // Add thought and observation to conversation
         reActMessages.push(new AIMessage(agentResponse.content));
@@ -160,28 +161,21 @@ export class Agent {
         reActMessages.push(
           new ToolMessage(
             toolCall.name,
-            observation.observation?.result,
-            observation.observation?.error
+            observation.result,
+            observation.error
           )
         );
 
         // Track ReAct step
         reActSteps.push({
           thought: { thinking: agentResponse.content, toolName: toolCall.name, toolInput: toolCall.input },
-          observation: observation.observation,
-          retryCount: observation.retryCount
+          observation: observation,
+          retryCount: observationCycles
         });
 
-        // If tool had errors and we haven't exhausted retries, continue loop
-        if (observation.observation?.error && observation.retryCount! < this.maxRetries) {
-          // Prompt agent to try a different approach
-          reActMessages.push(
-            new SystemMessage(
-              `The tool call failed: ${observation.observation.error}. Please try again or use a different approach. Retries remaining: ${this.maxRetries - observation.retryCount!}`
-            )
-          );
-        } else if (observation.observation?.error) {
-          // Max retries exceeded, break loop
+        // Check if we've hit the max observation cycles
+        if (observationCycles >= this.maxRetries) {
+          console.log(`[INFO] Reached maximum observation cycles (${this.maxRetries}). Stopping ReAct loop.`);
           continueLoop = false;
         }
       } else {
@@ -233,23 +227,20 @@ export class Agent {
   }
 
   /**
-   * Executes a tool with automatic retry logic
+   * Executes a tool once without retry logic
+   * The ReAct loop controls whether to execute tools again based on agent's evaluation
    */
-  private async executeToolWithRetry(
-    toolName: string, 
-    input: unknown,
-    retryCount: number = 0
-  ): Promise<{ observation: ReActObservation; retryCount: number }> {
+  private async executeToolOnce(
+    toolName: string,
+    input: unknown
+  ): Promise<ReActObservation> {
     const tool = this.tools.find(t => t.name === toolName);
 
     if (!tool) {
       return {
-        observation: {
-          toolName,
-          result: null,
-          error: `Tool '${toolName}' not found. Available tools: ${this.tools.map(t => t.name).join(', ')}`
-        },
-        retryCount
+        toolName,
+        result: null,
+        error: `Tool '${toolName}' not found. Available tools: ${this.tools.map(t => t.name).join(', ')}`
       };
     }
 
@@ -257,44 +248,18 @@ export class Agent {
       const result = await callTool(tool, input);
       const parsed = JSON.parse(result);
 
-      if (parsed.error) {
-        if (retryCount < this.maxRetries) {
-          console.log(`[RETRY] Tool '${toolName}' failed (attempt ${retryCount + 1}/${this.maxRetries}): ${parsed.error}`);
-          // Retry with slight modification to input or fresh attempt
-          return this.executeToolWithRetry(toolName, input, retryCount + 1);
-        } else {
-          return {
-            observation: {
-              toolName,
-              result: parsed,
-              error: `Tool failed after ${this.maxRetries} retries: ${parsed.error}`
-            },
-            retryCount
-          };
-        }
-      }
-
+      // Return observation with result or error
       return {
-        observation: {
-          toolName,
-          result: parsed
-        },
-        retryCount
+        toolName,
+        result: parsed.error ? undefined : parsed,
+        error: parsed.error || undefined
       };
     } catch (error) {
-      if (retryCount < this.maxRetries) {
-        console.log(`[RETRY] Tool '${toolName}' error (attempt ${retryCount + 1}/${this.maxRetries}):`, error);
-        return this.executeToolWithRetry(toolName, input, retryCount + 1);
-      } else {
-        return {
-          observation: {
-            toolName,
-            result: null,
-            error: `Tool execution failed after ${this.maxRetries} retries: ${error instanceof Error ? error.message : String(error)}`
-          },
-          retryCount
-        };
-      }
+      return {
+        toolName,
+        result: null,
+        error: `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`
+      };
     }
   }
 
