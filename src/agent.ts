@@ -1,15 +1,19 @@
 import { Ollama } from 'ollama';
-import type { AgentOptions, AgentConfig, IVectorStore, ChatResponse, Message } from './types';
+import type { AgentOptions, AgentReActConfig, IVectorStore, ChatResponse, Message, ReActStep, ReActObservation } from './types';
 import { maskPII } from './utils';
+import type { ToolMetadata } from './tools';
+import { callTool } from './tools';
 
 export class Agent {
   public name: string;
   public model: string;
   public description: string;
-  public config: AgentConfig;
-  public tools: any[];
+  public config: AgentReActConfig;
+  public tools: ToolMetadata[];
   public knowledgeBase?: IVectorStore;
   public systemPrompt?: string;
+  public maxRetries: number;
+  public enableReAct: boolean;
 
   private isCloud: boolean;
   private openRouterToken?: string;
@@ -27,7 +31,12 @@ export class Agent {
     this.config = {
       temperature: options.config?.temperature ?? 0.7,
       maxTokens: options.config?.maxTokens ?? 1024,
+      maxRetries: options.config?.maxRetries ?? 5,
+      enableReAct: options.config?.enableReAct ?? true,
     };
+
+    this.maxRetries = options.maxRetries ?? this.config.maxRetries ?? 5;
+    this.enableReAct = options.enableReAct ?? this.config.enableReAct ?? true;
 
     this.isCloud = this.checkIsCloud(this.model);
     this.openRouterToken = options.openRouterToken || process.env.OPEN_ROUTER_API_KEY;
@@ -40,6 +49,11 @@ export class Agent {
    */
   async invoke(messages: Message[]): Promise<ChatResponse> {
     const finalMessages = await this.prepareContext(messages);
+
+    // Use ReAct pattern if enabled and tools are available
+    if (this.enableReAct && this.tools.length > 0) {
+      return this.invokeWithReAct(finalMessages);
+    }
 
     if (this.isCloud) {
       return this.callOpenRouter(finalMessages);
@@ -95,6 +109,237 @@ export class Agent {
         }
       }
     }
+  }
+
+  // --- REACT PATTERN METHODS ---
+
+  /**
+   * Executes the ReAct (Reasoning + Acting) pattern
+   * Allows the agent to think about the problem, call tools, observe results, and iterate
+   */
+  private async invokeWithReAct(messages: Message[]): Promise<ChatResponse> {
+    const reActMessages: Message[] = [...messages];
+    const toolsContext = this.buildToolsContext();
+    
+    // Add tools context to system prompt
+    if (reActMessages[0]?.role === 'system') {
+      reActMessages[0].content += `\n\n${toolsContext}`;
+    } else {
+      reActMessages.unshift({
+        role: 'system',
+        content: `${reActMessages[0]?.content || ''}\n\n${toolsContext}`
+      });
+    }
+
+    let agentResponse: ChatResponse = { content: '', usage: { tokens: 0 } };
+    let reActSteps: ReActStep[] = [];
+    let continueLoop = true;
+    let iterations = 0;
+    const maxIterations = 10; // Prevent infinite loops
+
+    while (continueLoop && iterations < maxIterations) {
+      iterations++;
+
+      // Get agent's reasoning and action
+      agentResponse = this.isCloud 
+        ? await this.callOpenRouter(reActMessages)
+        : await this.callOllamaWithRetry(reActMessages);
+
+      // Parse the response for tool calls
+      const toolCall = this.parseToolCall(agentResponse.content);
+
+      if (toolCall) {
+        // Execute tool with retry logic
+        const observation = await this.executeToolWithRetry(toolCall.name, toolCall.input);
+        
+        // Add thought and observation to conversation
+        reActMessages.push({
+          role: 'assistant',
+          content: agentResponse.content
+        });
+
+        // Add observation as user message (tool results)
+        reActMessages.push({
+          role: 'user',
+          content: `Tool Result for ${toolCall.name}:\n${JSON.stringify(observation.observation)}`
+        });
+
+        // Track ReAct step
+        reActSteps.push({
+          thought: { thinking: agentResponse.content, toolName: toolCall.name, toolInput: toolCall.input },
+          observation: observation.observation,
+          retryCount: observation.retryCount
+        });
+
+        // If tool had errors and we haven't exhausted retries, continue loop
+        if (observation.observation?.error && observation.retryCount! < this.maxRetries) {
+          // Prompt agent to try a different approach
+          reActMessages.push({
+            role: 'system',
+            content: `The tool call failed: ${observation.observation.error}. Please try again or use a different approach. Retries remaining: ${this.maxRetries - observation.retryCount!}`
+          });
+        } else if (observation.observation?.error) {
+          // Max retries exceeded, break loop
+          continueLoop = false;
+        }
+      } else {
+        // No tool call found, agent provided final answer
+        continueLoop = false;
+      }
+    }
+
+    return agentResponse;
+  }
+
+  /**
+   * Parses agent response to extract tool calls
+   * Expected format: <tool>toolName</tool> or similar markers
+   */
+  private parseToolCall(content: string): { name: string; input: unknown } | null {
+    // Pattern 1: <tool>toolName</tool><input>{...}</input>
+    const toolMatch = content.match(/<tool>(\w+)<\/tool>/);
+    const inputMatch = content.match(/<input>(.*?)<\/input>/s);
+
+    if (toolMatch && toolMatch[1]) {
+      const toolName = toolMatch[1];
+      let input: unknown = {};
+
+      if (inputMatch && inputMatch[1]) {
+        try {
+          input = JSON.parse(inputMatch[1]);
+        } catch (e) {
+          input = { raw: inputMatch[1] };
+        }
+      }
+
+      return { name: toolName, input };
+    }
+
+    // Pattern 2: Tool call using markdown code blocks
+    const codeBlockMatch = content.match(/```json\s*\{[\s\S]*?"tool":\s*"(\w+)"[\s\S]*?\}\s*```/);
+    if (codeBlockMatch) {
+      try {
+        const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
+        if (jsonMatch && jsonMatch[1]) {
+          const parsed = JSON.parse(jsonMatch[1]);
+          return { name: parsed.tool, input: parsed.input || {} };
+        }
+      } catch (e) { }
+    }
+
+    return null;
+  }
+
+  /**
+   * Executes a tool with automatic retry logic
+   */
+  private async executeToolWithRetry(
+    toolName: string, 
+    input: unknown,
+    retryCount: number = 0
+  ): Promise<{ observation: ReActObservation; retryCount: number }> {
+    const tool = this.tools.find(t => t.name === toolName);
+
+    if (!tool) {
+      return {
+        observation: {
+          toolName,
+          result: null,
+          error: `Tool '${toolName}' not found. Available tools: ${this.tools.map(t => t.name).join(', ')}`
+        },
+        retryCount
+      };
+    }
+
+    try {
+      const result = await callTool(tool, input);
+      const parsed = JSON.parse(result);
+
+      if (parsed.error) {
+        if (retryCount < this.maxRetries) {
+          console.log(`[RETRY] Tool '${toolName}' failed (attempt ${retryCount + 1}/${this.maxRetries}): ${parsed.error}`);
+          // Retry with slight modification to input or fresh attempt
+          return this.executeToolWithRetry(toolName, input, retryCount + 1);
+        } else {
+          return {
+            observation: {
+              toolName,
+              result: parsed,
+              error: `Tool failed after ${this.maxRetries} retries: ${parsed.error}`
+            },
+            retryCount
+          };
+        }
+      }
+
+      return {
+        observation: {
+          toolName,
+          result: parsed
+        },
+        retryCount
+      };
+    } catch (error) {
+      if (retryCount < this.maxRetries) {
+        console.log(`[RETRY] Tool '${toolName}' error (attempt ${retryCount + 1}/${this.maxRetries}):`, error);
+        return this.executeToolWithRetry(toolName, input, retryCount + 1);
+      } else {
+        return {
+          observation: {
+            toolName,
+            result: null,
+            error: `Tool execution failed after ${this.maxRetries} retries: ${error instanceof Error ? error.message : String(error)}`
+          },
+          retryCount
+        };
+      }
+    }
+  }
+
+  /**
+   * Builds context string describing available tools for the agent
+   */
+  private buildToolsContext(): string {
+    if (this.tools.length === 0) return '';
+
+    const toolDescriptions = this.tools
+      .map(tool => {
+        const schemaStr = this.getSchemaDescription(tool.inputSchema);
+        return `- **${tool.name}**: ${tool.description}\n  Input: ${schemaStr}`;
+      })
+      .join('\n\n');
+
+    return `You have access to the following tools. When you need to use a tool, format it as:
+<tool>toolName</tool>
+<input>{"param1": "value1", "param2": "value2"}</input>
+
+Available Tools:
+${toolDescriptions}
+
+Remember to use tools when needed, observe the results, and reason about next steps.`;
+  }
+
+  /**
+   * Extracts schema description from Zod schema
+   */
+  private getSchemaDescription(schema: any): string {
+    if (!schema) return 'See tool description';
+    
+    try {
+      // For Zod schemas, try to get shape
+      if (schema._def?.shape) {
+        const shape = schema._def.shape;
+        const fields = Object.entries(shape)
+          .map(([key, val]: [string, any]) => {
+            const typeInfo = val._def?.typeName || 'unknown';
+            return `${key} (${typeInfo})`;
+          })
+          .join(', ');
+        return `{${fields}}`;
+      }
+    } catch (e) { }
+    
+    return 'See tool description';
   }
 
   // --- PRIVATE INFRASTRUCTURE METHODS ---
@@ -230,76 +475,117 @@ export class Agent {
   private async callOpenRouter(messages: Message[]): Promise<ChatResponse> {
     if (!this.openRouterToken) throw new Error("OpenRouter Token required.");
 
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${this.openRouterToken}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://monan.dev",
-        "X-Title": "Monan SDK"
-      },
-      body: JSON.stringify({
-        model: this.model,
-        messages: messages,
-        temperature: this.config.temperature,
-        max_tokens: this.config.maxTokens
-      })
-    });
+    // Sanitize messages to ensure they're properly formatted
+    const sanitizedMessages = messages.map(msg => ({
+      role: msg.role,
+      content: String(msg.content)
+    }));
 
-    if (!response.ok) throw new Error(await response.text());
-    const data = await response.json() as any;
-
-    return {
-      content: data.choices[0].message.content,
-      usage: { tokens: data.usage?.total_tokens }
+    // Build payload with only valid fields
+    const payload: any = {
+      model: this.model,
+      messages: sanitizedMessages,
+      temperature: this.config.temperature ?? 0.7,
     };
+
+    // Only include max_tokens if it's a valid number
+    if (typeof this.config.maxTokens === 'number' && this.config.maxTokens > 0) {
+      payload.max_tokens = this.config.maxTokens;
+    }
+
+    try {
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${this.openRouterToken}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://monan.dev",
+          "X-Title": "Monan SDK"
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`OpenRouter API Error: ${errorText}`);
+      }
+      
+      const data = await response.json() as any;
+
+      return {
+        content: data.choices[0].message.content,
+        usage: { tokens: data.usage?.total_tokens }
+      };
+    } catch (error) {
+      throw new Error(`Failed to call OpenRouter: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   private async *streamOpenRouter(messages: Message[]): AsyncGenerator<string, void, unknown> {
     if (!this.openRouterToken) throw new Error("OpenRouter Token required.");
 
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${this.openRouterToken}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://monan.dev",
-        "X-Title": "Monan SDK"
-      },
-      body: JSON.stringify({
-        model: this.model,
-        messages: messages,
-        temperature: this.config.temperature,
-        max_tokens: this.config.maxTokens,
-        stream: true
-      })
-    });
+    // Sanitize messages to ensure they're properly formatted
+    const sanitizedMessages = messages.map(msg => ({
+      role: msg.role,
+      content: String(msg.content)
+    }));
 
-    if (!response.ok || !response.body) throw new Error(await response.text());
+    // Build payload with only valid fields
+    const payload: any = {
+      model: this.model,
+      messages: sanitizedMessages,
+      temperature: this.config.temperature ?? 0.7,
+      stream: true
+    };
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
+    // Only include max_tokens if it's a valid number
+    if (typeof this.config.maxTokens === 'number' && this.config.maxTokens > 0) {
+      payload.max_tokens = this.config.maxTokens;
+    }
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    try {
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${this.openRouterToken}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://monan.dev",
+          "X-Title": "Monan SDK"
+        },
+        body: JSON.stringify(payload)
+      });
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+      if (!response.ok || !response.body) {
+        const errorText = await response.text();
+        throw new Error(`OpenRouter API Error: ${errorText}`);
+      }
 
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed === 'data: [DONE]') continue;
-        if (trimmed.startsWith('data: ')) {
-          try {
-            const json = JSON.parse(trimmed.substring(6));
-            const content = json.choices[0]?.delta?.content;
-            if (content) yield content;
-          } catch (e) { }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed === 'data: [DONE]') continue;
+          if (trimmed.startsWith('data: ')) {
+            try {
+              const json = JSON.parse(trimmed.substring(6));
+              const content = json.choices[0]?.delta?.content;
+              if (content) yield content;
+            } catch (e) { }
+          }
         }
       }
+    } catch (error) {
+      throw new Error(`Failed to stream from OpenRouter: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
