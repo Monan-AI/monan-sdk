@@ -58,10 +58,20 @@ export interface AgentOptions {
   enableReAct?: boolean;
 }
 
+import { BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage } from './messages';
+
 export interface Message {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
+  name?: string;
+  toolName?: string;
+  result?: unknown;
+  error?: string;
+  toolCalls?: Array<{ toolName: string; toolInput: unknown }>;
+  toJSON?(): Record<string, unknown>;
 }
+
+export type MessageType = BaseMessage | HumanMessage | AIMessage | ToolMessage | SystemMessage;
 
 export interface ChatResponse {
   content: string;

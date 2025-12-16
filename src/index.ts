@@ -1,6 +1,13 @@
 export { Agent } from './agent';
 export { Router } from './router';
 export { tool, extractTools, callTool, formatToolsForContext } from './tools';
+export { 
+  BaseMessage, 
+  HumanMessage, 
+  AIMessage, 
+  ToolMessage, 
+  SystemMessage 
+} from './messages';
 
 export type {
     Message, 
@@ -11,7 +18,9 @@ export type {
     ReActThought,
     ReActObservation,
     ReActStep,
-    IVectorStore
+    IVectorStore,
+    MessageType
 } from './types';
 
 export type { ToolMetadata } from './tools';
+export type { ToolResult } from './messages';

@@ -77,7 +77,8 @@ async function main() {
 
   const agent = new Agent({
     name: 'MathAssistant',
-    model: 'x-ai/grok-4.1-fast', // or use OpenRouter model like "openai/gpt-4"
+    //model: 'x-ai/grok-4.1-fast', // or use OpenRouter model like "openai/gpt-4"
+    model: 'gemma3:1b', // or use OpenRouter model like "openai/gpt-4"
     description: 'A helpful assistant that can perform calculations and search the web',
     tools: [...extractTools(calcTools), ...extractTools(searchTools)],
     config: {
@@ -85,7 +86,7 @@ async function main() {
       maxTokens: 1024,
       maxRetries: 5, // Will retry failed tools up to 5 times
     },
-    systemPrompt: 'You are a helpful math and search assistant. Use tools when needed.',
+    systemPrompt: 'You are a helpful math and search assistant. Use tools when you can.',
   });
 
   console.log('Agent created with ReAct enabled!');

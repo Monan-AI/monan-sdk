@@ -3,6 +3,7 @@ import type { AgentOptions, AgentReActConfig, IVectorStore, ChatResponse, Messag
 import { maskPII } from './utils';
 import type { ToolMetadata } from './tools';
 import { callTool } from './tools';
+import { HumanMessage, AIMessage, ToolMessage, SystemMessage } from './messages';
 
 export class Agent {
   public name: string;
@@ -72,7 +73,7 @@ export class Agent {
       try {
         response = await this.ollama.chat({
           model: this.model,
-          messages: finalMessages,
+          messages: this.formatForOllama(finalMessages) as any,
           stream: true,
           options: {
             temperature: this.config.temperature,
@@ -84,7 +85,7 @@ export class Agent {
         if (await this.handleModelMissingError(error)) {
           response = await this.ollama.chat({
             model: this.model,
-            messages: finalMessages,
+            messages: this.formatForOllama(finalMessages) as any,
             stream: true,
             options: {
               temperature: this.config.temperature,
@@ -119,12 +120,16 @@ export class Agent {
     
     // Add tools context to system prompt
     if (reActMessages[0]?.role === 'system') {
-      reActMessages[0].content += `\n\n${toolsContext}`;
+      const systemMsg = reActMessages[0];
+      reActMessages[0] = new SystemMessage(
+        `${systemMsg.content}\n\n${toolsContext}`,
+        systemMsg.name,
+        (systemMsg as any).metadata
+      );
     } else {
-      reActMessages.unshift({
-        role: 'system',
-        content: `${reActMessages[0]?.content || ''}\n\n${toolsContext}`
-      });
+      reActMessages.unshift(
+        new SystemMessage(`${reActMessages[0]?.content || ''}\n\n${toolsContext}`)
+      );
     }
 
     let agentResponse: ChatResponse = { content: '', usage: { tokens: 0 } };
@@ -149,16 +154,16 @@ export class Agent {
         const observation = await this.executeToolWithRetry(toolCall.name, toolCall.input);
         
         // Add thought and observation to conversation
-        reActMessages.push({
-          role: 'assistant',
-          content: agentResponse.content
-        });
+        reActMessages.push(new AIMessage(agentResponse.content));
 
-        // Add observation as user message (tool results)
-        reActMessages.push({
-          role: 'user',
-          content: `Tool Result for ${toolCall.name}:\n${JSON.stringify(observation.observation)}`
-        });
+        // Add observation as tool message
+        reActMessages.push(
+          new ToolMessage(
+            toolCall.name,
+            observation.observation?.result,
+            observation.observation?.error
+          )
+        );
 
         // Track ReAct step
         reActSteps.push({
@@ -170,10 +175,11 @@ export class Agent {
         // If tool had errors and we haven't exhausted retries, continue loop
         if (observation.observation?.error && observation.retryCount! < this.maxRetries) {
           // Prompt agent to try a different approach
-          reActMessages.push({
-            role: 'system',
-            content: `The tool call failed: ${observation.observation.error}. Please try again or use a different approach. Retries remaining: ${this.maxRetries - observation.retryCount!}`
-          });
+          reActMessages.push(
+            new SystemMessage(
+              `The tool call failed: ${observation.observation.error}. Please try again or use a different approach. Retries remaining: ${this.maxRetries - observation.retryCount!}`
+            )
+          );
         } else if (observation.observation?.error) {
           // Max retries exceeded, break loop
           continueLoop = false;
@@ -340,6 +346,45 @@ Remember to use tools when needed, observe the results, and reason about next st
 
   // --- PRIVATE INFRASTRUCTURE METHODS ---
 
+  /**
+   * Sanitizes messages for OpenRouter API
+   * Only includes 'role' and 'content' fields that OpenRouter accepts
+   * Converts unsupported roles (like 'tool') to 'user'
+   */
+  private sanitizeForOpenRouter(messages: Message[]): Array<{ role: string; content: string }> {
+    return messages.map(msg => {
+      // Convert 'tool' role to 'user' for OpenRouter compatibility
+      let role = msg.role;
+      if (role === 'tool') {
+        role = 'system';
+      }
+      
+      return {
+        role,
+        content: String(msg.content)
+      };
+    });
+  }
+
+  /**
+   * Converts messages to format for local Ollama
+   * Can include additional fields like 'name'
+   */
+  private formatForOllama(messages: Message[]): any[] {
+    return messages.map(msg => {
+      const formatted: any = {
+        role: msg.role,
+        content: msg.content
+      };
+      
+      if (msg.name) {
+        formatted.name = msg.name;
+      }
+      
+      return formatted;
+    });
+  }
+
   private async prepareContext(messages: Message[]): Promise<Message[]> {
     let contextMessages = [...messages];
     const lastUserMsgIndex: number = contextMessages.findLastIndex(m => m.role === 'user');
@@ -358,17 +403,27 @@ Remember to use tools when needed, observe the results, and reason about next st
         }
       }
 
-      contextMessages[lastUserMsgIndex] = { ...contextMessages[lastUserMsgIndex]!, content };
+      // Update the message with new content
+      if (contextMessages[lastUserMsgIndex] instanceof HumanMessage) {
+        contextMessages[lastUserMsgIndex] = new HumanMessage(
+          content,
+          contextMessages[lastUserMsgIndex]!.name,
+          (contextMessages[lastUserMsgIndex] as any).metadata
+        );
+      } else {
+        contextMessages[lastUserMsgIndex] = { ...contextMessages[lastUserMsgIndex]!, content };
+      }
     }
 
     // Build system prompt
     let systemPromptContent = this.systemPrompt || `You are ${this.name}. ${this.description}`;
     
     if (contextMessages.length === 0 || contextMessages[0]!.role !== 'system') {
-      contextMessages.unshift({ role: 'system', content: systemPromptContent });
+      contextMessages.unshift(new SystemMessage(systemPromptContent));
     } else {
       // If a system message already exists, prepend our system prompt to it
-      contextMessages[0]!.content = `${systemPromptContent}\n${contextMessages[0]!.content}`;
+      const existingSystemContent = contextMessages[0]!.content;
+      contextMessages[0] = new SystemMessage(`${systemPromptContent}\n${existingSystemContent}`);
     }
 
     return contextMessages;
@@ -396,7 +451,7 @@ Remember to use tools when needed, observe the results, and reason about next st
   private async executeOllamaChat(messages: Message[]): Promise<ChatResponse> {
     const response = await this.ollama.chat({
       model: this.model,
-      messages: messages,
+      messages: this.formatForOllama(messages) as any,
       stream: false,
       options: {
         temperature: this.config.temperature,
@@ -471,16 +526,13 @@ Remember to use tools when needed, observe the results, and reason about next st
   private async callOpenRouter(messages: Message[]): Promise<ChatResponse> {
     if (!this.openRouterToken) throw new Error("OpenRouter Token required.");
 
-    // Sanitize messages to ensure they're properly formatted
-    const sanitizedMessages = messages.map(msg => ({
-      role: msg.role,
-      content: String(msg.content)
-    }));
+    // Sanitize messages for OpenRouter - only role and content
+    const messagesList = this.sanitizeForOpenRouter(messages);
 
     // Build payload with only valid fields
     const payload: any = {
       model: this.model,
-      messages: sanitizedMessages,
+      messages: messagesList,
       temperature: this.config.temperature ?? 0.7,
     };
 
@@ -520,16 +572,13 @@ Remember to use tools when needed, observe the results, and reason about next st
   private async *streamOpenRouter(messages: Message[]): AsyncGenerator<string, void, unknown> {
     if (!this.openRouterToken) throw new Error("OpenRouter Token required.");
 
-    // Sanitize messages to ensure they're properly formatted
-    const sanitizedMessages = messages.map(msg => ({
-      role: msg.role,
-      content: String(msg.content)
-    }));
+    // Sanitize messages for OpenRouter - only role and content
+    const messagesList = this.sanitizeForOpenRouter(messages);
 
     // Build payload with only valid fields
     const payload: any = {
       model: this.model,
-      messages: sanitizedMessages,
+      messages: messagesList,
       temperature: this.config.temperature ?? 0.7,
       stream: true
     };
