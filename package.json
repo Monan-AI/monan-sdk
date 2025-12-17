@@ -1,9 +1,17 @@
 {
   "name": "monan-sdk",
-  "module": "index.ts",
+  "version": "0.0.3",
+  "main": "dist/index.cjs",
+  "types": "dist/index.d.cts",
+  "module": "dist/index.js",
   "type": "module",
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch"
+  },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "tsup": "^8.5.1"
   },
   "peerDependencies": {
     "typescript": "^5"

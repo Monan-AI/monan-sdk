@@ -259,7 +259,7 @@ You can also track cycles by examining the ReAct steps in your agent's internal 
 ## Example: Tuning maxRetries
 
 ```typescript
-import { Agent } from 'monan';
+import { Agent } from 'monan-sdk';
 
 // Test configuration
 const scenarios = [

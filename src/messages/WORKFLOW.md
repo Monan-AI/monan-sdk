@@ -15,7 +15,7 @@ O `Workflow` é um orquestrador de processos sequenciais que permite encadear m�
 ## Instalação & Uso Básico
 
 ```typescript
-import { Agent, Workflow, HumanMessage } from 'monan';
+import { Agent, Workflow, HumanMessage } from 'monan-sdk';
 
 // 1. Crie seus agentes
 const researcher = new Agent({
@@ -207,7 +207,7 @@ for await (const chunk of workflow.stream([
 ### 4️⃣ Combinando com Router
 
 ```typescript
-import { Router } from 'monan';
+import { Router } from 'monan-sdk';
 
 const fastAgent = new Agent({ name: "Fast", model: "gemma3:4b" });
 const smartAgent = new Agent({ name: "Smart", model: "openai/gpt-5.2-pro" });

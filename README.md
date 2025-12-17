@@ -21,13 +21,13 @@
 ## 🚀 Installation
 
 ```bash
-bun add monan
+bun add monan-sdk
 ```
 
 To use the CLI (required to run and test):
 
 ```bash
-bun add -g monan
+bun add -g monan-sdk
 ```
 
 ## ⚡ Quick Start
@@ -41,7 +41,7 @@ In Monan, you define your agent in code, but execution (Chat or API) is managed 
 **1. Create the file `agent.ts` inside the `src` folder:**
 
 ```typescript
-import { Agent } from 'monan';
+import { Agent } from 'monan-sdk';
 
 // Define and export your agent
 export const assistant = new Agent({
@@ -79,7 +79,7 @@ Not everyone has a GPU rig. Monan integrates natively with **OpenRouter**, allow
 **Security First:** When using external providers, Monan enables **PII Masking** by default (`maskPII: true`). This automatically redacts sensitive data (emails, phone numbers, API keys) *before* sending the context to the cloud.
 
 ```typescript
-import { Agent } from 'monan';
+import { Agent } from 'monan-sdk';
 
 const cloudAgent = new Agent({
   name: "CloudAssistant",
@@ -98,7 +98,7 @@ const cloudAgent = new Agent({
 Define custom system prompts to guide your agent's behavior and personality. If no `systemPrompt` is provided, Monan automatically generates one based on the agent's name and description.
 
 ```typescript
-import { Agent } from 'monan';
+import { Agent } from 'monan-sdk';
 
 const specialistAgent = new Agent({
   name: "DataAnalyst",
@@ -163,7 +163,7 @@ const specializedAgent = new Agent({
 For complex systems, you shouldn't use a heavy model for everything. The **Router** allows you to dynamically direct requests to the most appropriate agent based on intent or complexity.
 
 ```typescript
-import { Router, Agent } from 'monan';
+import { Router, Agent } from 'monan-sdk';
 
 const fastAgent = new Agent({ model: "gemma3:4b" }); // Fast, cheap
 const smartAgent = new Agent({ model: "openai/gpt-5.2-pro" }); // Smart, expensive 
@@ -196,7 +196,7 @@ export const mainRouter = new Router({
 Monan features a powerful and **Open Source** orchestration engine. You can chain agents, run tasks in parallel, and integrate custom tools.
 
 ```typescript
-import { Agent, Workflow } from 'monan';
+import { Agent, Workflow } from 'monan-sdk';
 import { tool } from 'monan/tools';
 
 // --- Tools ---
@@ -236,7 +236,7 @@ Monan provides a **type-safe, self-documenting tool system** with automatic vali
 The simplest way to create a tool is as a property in a class:
 
 ```typescript
-import { tool, extractTools } from 'monan';
+import { tool, extractTools } from 'monan-sdk';
 import { z } from 'zod';
 
 class WeatherTools {
@@ -262,7 +262,7 @@ const tools = extractTools(weatherTools);
 Once extracted, tools integrate seamlessly with agents:
 
 ```typescript
-import { Agent } from 'monan';
+import { Agent } from 'monan-sdk';
 
 const weatherAgent = new Agent({
   name: "WeatherBot",
@@ -277,7 +277,7 @@ The agent now has access to all your tools and will intelligently decide when to
 ### Creating Tools with Type Safety
 
 ```typescript
-import { tool, extractTools } from 'monan';
+import { tool, extractTools } from 'monan-sdk';
 import { z } from 'zod';
 
 class CalculatorTools {
@@ -365,7 +365,7 @@ await userTool.execute({ userId: "invalid-id" });
 Here's a practical example integrating with external APIs:
 
 ```typescript
-import { tool, extractTools } from 'monan';
+import { tool, extractTools } from 'monan-sdk';
 import { z } from 'zod';
 
 class ApiTools {
@@ -422,7 +422,7 @@ const assistantAgent = new Agent({
 Add custom validation logic beyond basic type checking:
 
 ```typescript
-import { tool } from 'monan';
+import { tool } from 'monan-sdk';
 import { z } from 'zod';
 
 class AdvancedTools {
@@ -451,7 +451,7 @@ class AdvancedTools {
 Organize tools by domain and combine them in a single agent:
 
 ```typescript
-import { tool, extractTools } from 'monan';
+import { tool, extractTools } from 'monan-sdk';
 
 class DatabaseTools {
   query = tool({
