@@ -1,5 +1,6 @@
 export { Agent } from './agent';
 export { Router } from './router';
+export { Workflow } from './workflow';
 export { tool, extractTools, callTool, formatToolsForContext } from './tools';
 export { 
   BaseMessage, 
