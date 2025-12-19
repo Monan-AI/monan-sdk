@@ -186,9 +186,13 @@ export const mainRouter = new Router({
     }
   ]
 });
+```
 
-// Run the router just like an agent
-// monan run mainRouter:src.router
+Run the router just like an agent:
+
+
+```bash
+monan run mainRouter:src.router
 ```
 
 ## 🔀 Workflow Orchestration
@@ -557,6 +561,60 @@ const tools = [
   tool({ description: "Persist data to storage", /* ... */ })
 ];
 ```
+
+## 🧠 Hyper Agents (Orchestration)
+
+For highly complex tasks, use a HyperAgent. Unlike a simple Router, a Hyper Agent creates a plan, breaks down the task, and manages a team of specialized agents to execute the work, synthesizing the final result.
+
+It implements the Plan-Delegate-Synthesize pattern automatically.
+
+```typescript
+import { Agent, HyperAgent } from 'monan-sdk';
+import { extractTools } from 'monan-sdk';
+// Assume tools are imported...
+
+// 1. Define Specialized Agents (The Team)
+const coder = new Agent({
+  name: "SeniorDev",
+  model: "qwen2.5-coder:7b",
+  description: "Writes, debugs and explains Python and TypeScript code."
+});
+
+const researcher = new Agent({
+  name: "WebResearcher",
+  model: "llama3:8b",
+  tools: tools, // web search tools
+  description: "Searches the internet for current events and documentation."
+});
+
+// 2. Define the Hyper Agent (The Manager)// This agent needs a smarter model to handle logic (e.g., Llama 3 70b, GPT-4)
+export const techLead = new HyperAgent({
+  name: "TechLead",
+  model: "openai/gpt-5.2-pro", // Needs high reasoning capability
+  agents: [coder, researcher], // <--- The Squad
+  description: "Manages the development of software features requiring updated docs.",
+});
+```
+
+**Run it:**
+
+```bash
+monan run techLead:src.agent
+```
+
+**Scenario:**
+
+- **User:** "Build a Python script to fetch the latest stock price of Apple using the yahoo-finance API, but first check the API documentation for the correct endpoint."
+
+- **HyperAgent Logic:**
+
+  1. **Calls WebResearcher:** "Find yahoo-finance API documentation for stock prices."
+
+  2. **Receives doc info.**
+
+  3. **Calls SeniorDev:** "Write a Python script using this endpoint [url]..."
+
+  4. **Output:** Returns the code to the user.
 
 ## 🧠 Embeddings & Local Memory
 
