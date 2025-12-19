@@ -13,15 +13,15 @@ async function main() {
   });
 
   // Example 1: Using invoke (synchronous-like response)
-  console.log('=== Using invoke() (local) ===');
-  const response = await agent.invoke([
-    {
-      role: 'user',
-      content: 'What is the capital of France?',
-    },
-  ]);
-  console.log('Response:', response.content);
-  console.log('Tokens used:', response.usage?.tokens);
+  // console.log('=== Using invoke() (local) ===');
+  // const response = await agent.invoke([
+  //   {
+  //     role: 'user',
+  //     content: 'What is the capital of France?',
+  //   },
+  // ]);
+  // console.log('Response:', response.content);
+  // console.log('Tokens used:', response.usage?.tokens);
 
   // Example 2: Using stream (token-by-token streaming)
   console.log('\n=== Agent Streaming Test ===');

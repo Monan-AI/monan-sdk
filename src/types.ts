@@ -58,6 +58,15 @@ export interface AgentOptions {
   enableReAct?: boolean;
 }
 
+export interface HyperAgentOptions extends AgentOptions {
+  /**
+   * The squad of specialized agents that this HyperAgent manages.
+   * Each agent will be converted into a tool callable by the orchestrator.
+   */
+  agents: Agent[];
+}
+
+import type { Agent } from './agent';
 import { BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage } from './messages';
 
 export interface Message {

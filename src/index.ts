@@ -1,4 +1,5 @@
 export { Agent } from './agent';
+export { HyperAgent } from './hyper-agent';
 export { Router } from './router';
 export { Workflow } from './workflow';
 export { tool, extractTools, callTool, formatToolsForContext } from './tools';
@@ -13,8 +14,9 @@ export {
 export type {
     Message, 
     ChatResponse, 
-    AgentOptions, 
+    AgentOptions,
     AgentConfig,
+    HyperAgentOptions,
     AgentReActConfig,
     ReActThought,
     ReActObservation,
