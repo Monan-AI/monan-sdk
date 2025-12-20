@@ -1,10 +1,13 @@
 {
   "name": "monan-sdk",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "main": "dist/index.cjs",
   "types": "dist/index.d.cts",
   "module": "dist/index.js",
   "type": "module",
+  "bin":{
+    "monan": "./bin/monan.ts"
+  },
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch"
