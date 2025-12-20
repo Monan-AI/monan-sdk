@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 import { Command } from 'commander';
 import { Elysia } from 'elysia';
 import chalk from 'chalk';
