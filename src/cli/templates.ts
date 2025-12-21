@@ -13,35 +13,46 @@ export const templates = {
     },
     dependencies: {
       "monan-sdk": "latest",
-      "zod": "^3.22.4"
+      "zod": "^4.2.0"
     },
     devDependencies: {
       "@types/bun": "latest"
     },
     peerDependencies: {
-      "typescript": "^5.0.0"
+      "typescript": "^5"
     }
   }, null, 2),
 
   tsconfig: JSON.stringify({
     compilerOptions: {
+      // Environment setup & latest features
       lib: ["ESNext"],
-      module: "esnext",
-      target: "esnext",
-      moduleResolution: "bundler",
+      target: "ESNext",
+      module: "Preserve",
       moduleDetection: "force",
-      allowImportingTsExtensions: true,
-      noEmit: true,
-      composite: true,
-      strict: true,
-      downlevelIteration: true,
-      skipLibCheck: true,
       jsx: "react-jsx",
-      allowSyntheticDefaultImports: true,
-      forceConsistentCasingInFileNames: true,
       allowJs: true,
-      types: ["bun-types"]
-    }
+
+      // Bundler mode
+      moduleResolution: "bundler",
+      allowImportingTsExtensions: true,
+      verbatimModuleSyntax: true,
+      noEmit: true,
+
+      // Best practices
+      strict: true,
+      skipLibCheck: true,
+      noFallthroughCasesInSwitch: true,
+      noUncheckedIndexedAccess: true,
+      noImplicitOverride: true,
+
+      // Some stricter flags (disabled by default)
+      noUnusedLocals: false,
+      noUnusedParameters: false,
+      noPropertyAccessFromIndexSignature: false
+    },
+    include: ["src"],
+    exclude: ["node_modules", "dist", "examples", "tests"]
   }, null, 2),
 
   env: `# OpenRouter API Key (Optional if running local Ollama)

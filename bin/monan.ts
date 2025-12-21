@@ -105,3 +105,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
       process.exit(1);
     }
   });
+
+// Necessary to activate the CLI
+program.parse(process.argv);
